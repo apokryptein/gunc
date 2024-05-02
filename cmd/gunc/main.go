@@ -1,20 +1,22 @@
 package main
 
 import (
-	"os/exec"
-	//"fmt"
 	"bufio"
-	"bytes"
 	"flag"
+	"fmt"
+	"io"
+	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Flags struct {
-	ip     string
-	port   int
-	listen bool
+	IP     string
+	Port   int
+	Listen bool
 }
 
 func GetFlags() Flags {
@@ -32,55 +34,119 @@ func GetFlags() Flags {
 
 	// put flags into Flags struct
 	flags := Flags{
-		ip:     *ipFlag,
-		port:   *portFlag,
-		listen: *listenFlag,
+		IP:     *ipFlag,
+		Port:   *portFlag,
+		Listen: *listenFlag,
 	}
-
 	return flags
-
 }
 
 func main() {
+	flags := GetFlags()
+	if flags.Listen == true {
+		fmt.Printf("Starting server: %s:%d\n", flags.IP, flags.Port)
+		ServerListen(flags.IP, flags.Port)
+	} else {
+		fmt.Printf("Connecting: %s:%d\n", flags.IP, flags.Port)
+		ClientConnect(flags.IP, flags.Port)
+	}
 
-	//	if listen == true {
-	//		addr := getListenPort(port)
-	//		bindShell(addr)
-	//	}
 }
 
-func getListenPort(port int) string {
-	p := strconv.Itoa(port)
-	addr := ":" + p
-	return addr
-}
+func ServerListen(ipAddr string, port int) {
 
-func bindShell(addr string) {
-	ln, _ := net.Listen("tcp", addr)
-	defer ln.Close()
+	listener, err := net.Listen("tcp", makeAddress(ipAddr, port))
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	defer listener.Close()
 
 	for {
-		conn, _ := ln.Accept()
-		go func(c net.Conn) {
-			for {
-				msg, err := bufio.NewReader(conn).ReadString('\n')
-				if err != nil {
-					break
-				}
-
-				command := strings.Trim(msg, "\r\n")
-
-				commandElements := strings.Fields(command)
-				cmdName := commandElements[0]
-				cmdArgs := commandElements[1:]
-
-				cmd := exec.Command(cmdName, cmdArgs...)
-				var b bytes.Buffer
-				cmd.Stdout = &b
-				cmd.Run()
-				conn.Write(b.Bytes())
-			}
-			c.Close()
-		}(conn)
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		go handleRequest(conn)
 	}
+}
+
+func ClientConnect(ipAddr string, port int) {
+
+	tcpServer, err := net.ResolveTCPAddr("tcp", makeAddress(ipAddr, port))
+
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	conn, err := net.DialTCP("tcp", nil, tcpServer)
+
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	defer conn.Close()
+
+	for {
+		fmt.Print("# ")
+		reader := bufio.NewReader(os.Stdin)
+		// ReadString will block until the delimiter is entered
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+
+		// remove the delimeter from the string
+		input = strings.TrimSuffix(input, "\n")
+
+		_, err = conn.Write([]byte(input))
+		if err != nil {
+			fmt.Println("Write data failed:", err.Error())
+			break
+		}
+
+		// buffer to get data
+		received := make([]byte, 1024)
+		fmt.Println("receiving now")
+		n, err := conn.Read(received)
+		fmt.Println("just after receiving")
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Read error: %s\n", err)
+			}
+			fmt.Println("some other kind of error")
+			log.Fatal(err)
+			break
+		}
+		fmt.Println("should have received from server")
+		fmt.Println(string(received[:n]))
+	}
+}
+
+func handleRequest(conn net.Conn) {
+	// incoming request
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// write data to response
+	time := time.Now().Format(time.ANSIC)
+	responseStr := fmt.Sprintf("Your message is: %v. Received time: %v", string(buffer[0:n]), time)
+	conn.Write([]byte(responseStr))
+
+	// close conn
+	conn.Close()
+}
+
+func makeAddress(ip string, port int) string {
+	p := strconv.Itoa(port)
+	fullAddr := ip + ":" + p
+	return fullAddr
 }
