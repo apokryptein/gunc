@@ -1,3 +1,3 @@
 # gunc
 
-A simple golang netcat utility with concurrency.
+Simple command line TCP socket server/client tool written in golang.
