@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -11,12 +12,14 @@ import (
 	"strings"
 )
 
+// Flag struct
 type Flags struct {
 	IP     string
 	Port   int
 	Listen bool
 }
 
+// Flag parsing function
 func GetFlags() Flags {
 
 	// define flags
@@ -45,6 +48,7 @@ func GetFlags() Flags {
 	return flags
 }
 
+// MAIN
 func main() {
 	// get and parse flags
 	flags := GetFlags()
@@ -60,15 +64,20 @@ func main() {
 	}
 }
 
+// Server Function
 func ServerListen(ipAddr string, port int) {
+	// construct address string
+	fullAddr := makeAddress(ipAddr, port)
+
 	// create listener
-	listener, err := net.Listen("tcp", makeAddress(ipAddr, port))
+	listener, err := net.Listen("tcp", fullAddr)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
 
-	defer listener.Close()
+	//defer listener.Close()
+	defer closeListener(listener)
 
 	// loop to listen for requests
 	for {
@@ -81,8 +90,41 @@ func ServerListen(ipAddr string, port int) {
 	}
 }
 
-func ClientConnect(ipAddr string, port int) {
+// Function to handle server requests
+func handleRequest(conn net.Conn) {
+	// close conn
+	defer conn.Close()
 
+	for {
+		// Get data length from client
+		lengthBuf := make([]byte, 4)
+		_, err := conn.Read(lengthBuf)
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+
+		length := binary.BigEndian.Uint32(lengthBuf)
+		fmt.Printf("Receiving %d bytes of data\n", length)
+
+		// make buffer of size specified in length header for read
+		data := make([]byte, length)
+
+		// read data from client
+		_, err = conn.Read(data)
+		if err != nil {
+			log.Fatal(err)
+			break
+		}
+
+		// send message back to client
+		conn.Write(lengthBuf)
+		conn.Write(data)
+	}
+}
+
+// Client Function
+func ClientConnect(ipAddr string, port int) {
 	// construct address string
 	fullAddr := makeAddress(ipAddr, port)
 
@@ -93,7 +135,8 @@ func ClientConnect(ipAddr string, port int) {
 		return
 	}
 
-	defer conn.Close()
+	//defer conn.Close()
+	defer closeConn(conn)
 
 	fmt.Printf("Connected to server => %s\n", fullAddr)
 	fmt.Printf("'exit' to exit\n\n")
@@ -110,6 +153,7 @@ func ClientConnect(ipAddr string, port int) {
 		// remove newline
 		input = strings.TrimSuffix(input, "\n")
 
+		// test for exit or no input
 		if input == "exit" {
 			fmt.Println("Exiting. Goodbye.")
 			return
@@ -117,56 +161,43 @@ func ClientConnect(ipAddr string, port int) {
 			continue
 		}
 
-		// send to server
-		_, err = conn.Write([]byte(input))
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+		// get input length and cast to uint32
+		length := uint32(len(input))
 
-		// buffer to get data
-		buf := make([]byte, 1024)
+		// create length buffer
+		lengthBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(lengthBuf, length)
 
-		// read from server
-		n, err := conn.Read(buf)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+		// send data over socket
+		conn.Write(lengthBuf)
+		conn.Write([]byte(input))
 
-		// print response to console
-		fmt.Println(string(buf[:n]))
+		conn.Read(lengthBuf)
+		respLength := binary.BigEndian.Uint32(lengthBuf)
+
+		respData := make([]byte, respLength)
+		conn.Read(respData)
+
+		fmt.Println(string(respData))
+
 	}
 }
 
-func handleRequest(conn net.Conn) {
-	// close conn
-	defer conn.Close()
-
-	// incoming request
-	buf := make([]byte, 1024)
-
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Fatal(err)
-			break
-		}
-
-		data := buf[:n]
-
-		fmt.Printf("Received %d bytes\n", n)
-		_, err = conn.Write(data)
-
-		if err != nil {
-			log.Fatal(err)
-			break
-		}
-	}
-}
-
+// Creates string address for net functions
 func makeAddress(ip string, port int) string {
 	p := strconv.Itoa(port)
 	fullAddr := ip + ":" + p
 	return fullAddr
+}
+
+// Closes net.Dial connections
+func closeConn(conn net.Conn) {
+	conn.Close()
+	fmt.Println("Connection closed.")
+}
+
+// Closes net.Listen listeners
+func closeListener(listener net.Listener) {
+	listener.Close()
+	fmt.Println("Listener closed.")
 }
