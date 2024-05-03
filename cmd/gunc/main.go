@@ -4,13 +4,11 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type Flags struct {
@@ -32,6 +30,12 @@ func GetFlags() Flags {
 	// parse flage
 	flag.Parse()
 
+	// check for minimum number of args
+	if len(os.Args) < 3 {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	// put flags into Flags struct
 	flags := Flags{
 		IP:     *ipFlag,
@@ -42,19 +46,22 @@ func GetFlags() Flags {
 }
 
 func main() {
+	// get and parse flags
 	flags := GetFlags()
+
+	// check for listen flag and start server or client accordingly
 	if flags.Listen == true {
+		// act as server
 		fmt.Printf("Starting server: %s:%d\n", flags.IP, flags.Port)
 		ServerListen(flags.IP, flags.Port)
 	} else {
-		fmt.Printf("Connecting: %s:%d\n", flags.IP, flags.Port)
+		// act as client
 		ClientConnect(flags.IP, flags.Port)
 	}
-
 }
 
 func ServerListen(ipAddr string, port int) {
-
+	// create listener
 	listener, err := net.Listen("tcp", makeAddress(ipAddr, port))
 	if err != nil {
 		log.Fatal(err)
@@ -63,11 +70,12 @@ func ServerListen(ipAddr string, port int) {
 
 	defer listener.Close()
 
+	// loop to listen for requests
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Fatal(err)
-			os.Exit(1)
+			continue
 		}
 		go handleRequest(conn)
 	}
@@ -75,74 +83,86 @@ func ServerListen(ipAddr string, port int) {
 
 func ClientConnect(ipAddr string, port int) {
 
-	tcpServer, err := net.ResolveTCPAddr("tcp", makeAddress(ipAddr, port))
+	// construct address string
+	fullAddr := makeAddress(ipAddr, port)
 
+	// connect to server
+	conn, err := net.Dial("tcp", fullAddr)
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(1)
-	}
-
-	conn, err := net.DialTCP("tcp", nil, tcpServer)
-
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		return
 	}
 
 	defer conn.Close()
 
-	for {
-		fmt.Print("# ")
-		reader := bufio.NewReader(os.Stdin)
-		// ReadString will block until the delimiter is entered
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
-		}
+	fmt.Printf("Connected to server => %s\n", fullAddr)
+	fmt.Printf("'exit' to exit\n\n")
 
-		// remove the delimeter from the string
+	consoleReader := bufio.NewReader(os.Stdin)
+
+	for {
+		// print prompt
+		fmt.Print(">> ")
+
+		// get input from user
+		input, _ := consoleReader.ReadString('\n')
+
+		// remove newline
 		input = strings.TrimSuffix(input, "\n")
 
+		if input == "exit" {
+			fmt.Println("Exiting. Goodbye.")
+			return
+		} else if input == "" {
+			continue
+		}
+
+		// send to server
 		_, err = conn.Write([]byte(input))
 		if err != nil {
-			fmt.Println("Write data failed:", err.Error())
-			break
+			fmt.Println(err)
+			return
 		}
 
 		// buffer to get data
-		received := make([]byte, 1024)
-		fmt.Println("receiving now")
-		n, err := conn.Read(received)
-		fmt.Println("just after receiving")
+		buf := make([]byte, 1024)
+
+		// read from server
+		n, err := conn.Read(buf)
 		if err != nil {
-			if err != io.EOF {
-				log.Printf("Read error: %s\n", err)
-			}
-			fmt.Println("some other kind of error")
-			log.Fatal(err)
-			break
+			fmt.Println(err)
+			return
 		}
-		fmt.Println("should have received from server")
-		fmt.Println(string(received[:n]))
+
+		// print response to console
+		fmt.Println(string(buf[:n]))
 	}
 }
 
 func handleRequest(conn net.Conn) {
-	// incoming request
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// write data to response
-	time := time.Now().Format(time.ANSIC)
-	responseStr := fmt.Sprintf("Your message is: %v. Received time: %v", string(buffer[0:n]), time)
-	conn.Write([]byte(responseStr))
-
 	// close conn
-	conn.Close()
+	defer conn.Close()
+
+	// incoming request
+	buf := make([]byte, 1024)
+
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Fatal(err)
+			break
+		}
+
+		data := buf[:n]
+
+		fmt.Printf("Received %d bytes\n", n)
+		_, err = conn.Write(data)
+
+		if err != nil {
+			log.Fatal(err)
+			break
+		}
+	}
 }
 
 func makeAddress(ip string, port int) string {
