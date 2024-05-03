@@ -1,5 +1,6 @@
 package main
 
+// import packages
 import (
 	"bufio"
 	"encoding/binary"
