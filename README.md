@@ -1,3 +1,3 @@
 # gunc
 
-Simple command line TCP socket server/client tool written in golang.
+Simple command line TCP socket server/client tool written in Go.
