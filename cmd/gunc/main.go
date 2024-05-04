@@ -4,13 +4,16 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Flag struct
@@ -55,7 +58,7 @@ func main() {
 	flags := GetFlags()
 
 	// check for listen flag and start server or client accordingly
-	if flags.Listen == true {
+	if flags.Listen {
 		// act as server
 		fmt.Printf("Starting server: %s:%d\n", flags.IP, flags.Port)
 		ServerListen(flags.IP, flags.Port)
@@ -100,9 +103,14 @@ func handleRequest(conn net.Conn) {
 		// Get data length from client
 		lengthBuf := make([]byte, 4)
 		_, err := conn.Read(lengthBuf)
-		if err != nil {
-			log.Fatal(err)
-			return
+		if err != nil && err != io.EOF {
+			if errors.Is(err, syscall.ECONNRESET) {
+				// if client disconnects return
+				return
+			} else {
+				log.Fatal(err)
+				break
+			}
 		}
 
 		length := binary.BigEndian.Uint32(lengthBuf)
@@ -113,9 +121,14 @@ func handleRequest(conn net.Conn) {
 
 		// read data from client
 		_, err = conn.Read(data)
-		if err != nil {
-			log.Fatal(err)
-			break
+		if err != nil && err != io.EOF {
+			if errors.Is(err, syscall.ECONNRESET) {
+				// if client disconnects return
+				return
+			} else {
+				log.Fatal(err)
+				break
+			}
 		}
 
 		// send message back to client
